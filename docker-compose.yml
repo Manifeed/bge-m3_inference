@@ -1,0 +1,28 @@
+services:
+  embedding_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      provenance: false
+      sbom: false
+    container_name: ${EMBEDDING_SERVICE_CONTAINER_NAME:-embedding_service}
+    ports:
+      - "${EMBEDDING_SERVICE_PORT:-8000}:8000"
+    environment:
+      EMBEDDING_SERVICE_API_KEY: ${EMBEDDING_SERVICE_API_KEY:?EMBEDDING_SERVICE_API_KEY must be set}
+      SOURCE_EMBEDDING_MODEL_PATH: ${SOURCE_EMBEDDING_MODEL_PATH:-/opt/models/bge-m3}
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+    gpus: all
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/internal/health').read()\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 5
+
