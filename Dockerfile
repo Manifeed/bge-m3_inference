@@ -12,6 +12,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     SOURCE_EMBEDDING_MODEL_ID=BAAI/bge-m3 \
     SOURCE_EMBEDDING_MODEL_PATH=/opt/models/bge-m3 \
+    BGE_M3_INFERENCE_USE_FP16=true \
+    BGE_M3_INFERENCE_MAX_LENGTH=512 \
+    BGE_M3_INFERENCE_BATCH_MAX_ITEMS=64 \
+    BGE_M3_INFERENCE_BATCH_MAX_TOKENS=16384 \
+    BGE_M3_INFERENCE_BATCH_MAX_WAIT_MS=5 \
+    BGE_M3_INFERENCE_QUEUE_MAX_ITEMS=1024 \
+    BGE_M3_INFERENCE_REQUEST_TIMEOUT_SECONDS=300 \
+    BGE_M3_INFERENCE_SHUTDOWN_GRACE_SECONDS=30 \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility \
     HF_HOME=/tmp/huggingface
@@ -33,6 +41,9 @@ snapshot_download(repo_id=model_id, local_dir=model_path)
 BGEM3FlagModel(model_path, use_fp16=False)
 PY
 
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
+
 COPY --chown=appuser:appuser app /app/app
 
 RUN find /app -type d -name __pycache__ -prune -exec rm -rf '{}' + \
@@ -46,6 +57,6 @@ USER appuser
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/internal/health').read()"
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/internal/health').read()"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python3", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
