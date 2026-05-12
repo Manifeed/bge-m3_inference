@@ -1,0 +1,149 @@
+name: release
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "tests/**"
+      - "scripts/**"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - "docker-compose.release.yml"
+      - "Makefile"
+      - "requirements.txt"
+      - "requirements-dev.txt"
+      - "README.md"
+      - ".env.example"
+      - ".github/workflows/release.yml"
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: "Version tag to publish when running manually (for example v1.2.3)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/manifeed/bge-m3_inference
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run test suite
+        run: make test
+
+  build-and-push:
+    name: Build and Push Image
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      version_tag: ${{ steps.version.outputs.version_tag }}
+      image_name: ${{ env.IMAGE_NAME }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version tag
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION_TAG: ${{ github.event.inputs.version_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            version_tag="${GITHUB_REF_NAME}"
+          else
+            version_tag="${INPUT_VERSION_TAG}"
+          fi
+
+          if [[ -z "${version_tag}" ]]; then
+            printf '%s\n' 'workflow_dispatch requires version_tag when not running from a tag ref.' >&2
+            exit 1
+          fi
+
+          if [[ "${version_tag}" != v* ]]; then
+            printf 'Invalid version tag "%s": expected it to start with v.\n' "${version_tag}" >&2
+            exit 1
+          fi
+
+          echo "version_tag=${version_tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version_tag }}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version_tag }}
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  release-summary:
+    name: Release Summary
+    needs: build-and-push
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish summary
+        env:
+          IMAGE_NAME: ${{ needs.build-and-push.outputs.image_name }}
+          VERSION_TAG: ${{ needs.build-and-push.outputs.version_tag }}
+          DIGEST: ${{ needs.build-and-push.outputs.digest }}
+        shell: bash
+        run: |
+          {
+            echo "## Published Image"
+            echo
+            echo "- Image: \`${IMAGE_NAME}:${VERSION_TAG}\`"
+            echo "- Latest: \`${IMAGE_NAME}:latest\`"
+            echo "- Digest: \`${DIGEST}\`"
+            echo
+            echo "## Server Update"
+            echo
+            echo '```bash'
+            echo "export BGE_M3_INFERENCE_IMAGE_TAG=${VERSION_TAG}"
+            echo 'docker compose -f docker-compose.release.yml pull'
+            echo 'docker compose -f docker-compose.release.yml up -d'
+            echo 'curl http://127.0.0.1:8000/internal/ready -H "Authorization: Bearer ${BGE_M3_INFERENCE_API_KEY}"'
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"

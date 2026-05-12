@@ -122,22 +122,21 @@ class FlagEmbeddingClient:
         for future in futures:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                self._cancel_futures(futures)
                 raise EmbeddingRequestTimeoutError()
             try:
                 dense_vector, sparse_vector, colbert_vector = future.result(timeout=remaining)
             except TimeoutError as exception:
+                self._cancel_futures(futures)
                 raise EmbeddingRequestTimeoutError() from exception
             dense_vectors.append(dense_vector)
             sparse_vectors.append(sparse_vector)
             colbert_vectors.append(colbert_vector)
         return dense_vectors, sparse_vectors, colbert_vectors
 
-    def _wait_for_ready(self, timeout: float | None = None) -> None:
-        is_ready = self._ready_event.wait(timeout=timeout)
-        if not is_ready:
-            raise EmbeddingRuntimeNotReadyError()
-        if self._load_error is not None:
-            raise self._load_error
+    def _cancel_futures(self, futures: list[Future[EmbeddingResult]]) -> None:
+        for future in futures:
+            future.cancel()
 
     def _submit_task(
         self,

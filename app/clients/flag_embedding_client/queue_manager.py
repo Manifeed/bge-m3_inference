@@ -8,8 +8,6 @@ from app.domain.batching import (
     EmbeddingModeSignature,
     effective_max_items,
     effective_max_tokens,
-    select_batch_indexes,
-    selected_token_count,
 )
 
 from .models import EmbeddingTask
@@ -46,17 +44,18 @@ class EmbeddingTaskQueue:
         )
 
     def collect_batch(self, *, stop_event: threading.Event) -> list[EmbeddingTask]:
-        while not self._pending and not stop_event.is_set():
-            self._condition.wait(timeout=0.1)
-        if stop_event.is_set():
-            return []
-
-        first_task = self._pending[0]
-        signature = first_task.signature
-        deadline = first_task.enqueued_at + (self._settings.batch_max_wait_ms / 1000.0)
         while True:
-            indexes = self._select_batch_indexes(signature)
-            token_count = self._selected_token_count(indexes)
+            self._discard_cancelled_tasks()
+            while not self._pending and not stop_event.is_set():
+                self._condition.wait(timeout=0.1)
+                self._discard_cancelled_tasks()
+            if stop_event.is_set():
+                return []
+
+            first_task = self._pending[0]
+            signature = first_task.signature
+            deadline = first_task.enqueued_at + (self._settings.batch_max_wait_ms / 1000.0)
+            indexes, token_count = self._select_batch(signature)
             max_items = self.effective_max_items(signature)
             max_tokens = self.effective_max_tokens(signature)
             should_flush = len(indexes) >= max_items or token_count >= max_tokens
@@ -93,26 +92,36 @@ class EmbeddingTaskQueue:
         self._adaptive_batch_items[signature] = reduced_batch_size
         return reduced_batch_size
 
-    def snapshot_signatures(self) -> list[EmbeddingModeSignature]:
-        return [task.signature for task in self._pending]
+    def _discard_cancelled_tasks(self) -> None:
+        if not self._pending:
+            return
+        self._pending = [task for task in self._pending if not task.future.cancelled()]
 
-    def snapshot_token_estimates(self) -> list[int]:
-        return [task.token_estimate for task in self._pending]
+    def _select_batch(self, signature: EmbeddingModeSignature) -> tuple[list[int], int]:
+        indexes: list[int] = []
+        token_count = 0
+        max_items = self.effective_max_items(signature)
+        max_tokens = self.effective_max_tokens(signature)
 
-    def _select_batch_indexes(self, signature: EmbeddingModeSignature) -> list[int]:
-        return select_batch_indexes(
-            task_signatures=self.snapshot_signatures(),
-            token_estimates=self.snapshot_token_estimates(),
-            target_signature=signature,
-            max_items=self.effective_max_items(signature),
-            max_tokens=self.effective_max_tokens(signature),
-        )
+        for index, task in enumerate(self._pending):
+            if task.signature != signature:
+                continue
+            next_token_count = token_count + task.token_estimate
+            if indexes and next_token_count > max_tokens:
+                break
+            indexes.append(index)
+            token_count = next_token_count
+            if len(indexes) >= max_items:
+                break
 
-    def _selected_token_count(self, indexes: list[int]) -> int:
-        return selected_token_count(
-            token_estimates=self.snapshot_token_estimates(),
-            indexes=indexes,
-        )
+        if indexes:
+            return indexes, token_count
+
+        if not self._pending:
+            return [], 0
+
+        first_task = self._pending[0]
+        return [0], first_task.token_estimate
 
     def _pop_selected_batch(
         self,

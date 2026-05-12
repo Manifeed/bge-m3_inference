@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future
 from types import SimpleNamespace
+import time
 
 import pytest
 
@@ -59,6 +60,20 @@ def test_encode_raises_request_timeout_when_futures_take_too_long(monkeypatch) -
 
     with pytest.raises(EmbeddingRequestTimeoutError):
         client.encode(texts=["hello"], dense=signature.dense, sparse=signature.sparse, colbert=signature.colbert)
+
+
+def test_collect_results_cancels_outstanding_futures_on_timeout() -> None:
+    from app.clients.flag_embedding_client.client import FlagEmbeddingClient
+
+    client = FlagEmbeddingClient()
+    completed = Future()
+    completed.set_result(([0.1], None, None))
+    pending = Future()
+
+    with pytest.raises(EmbeddingRequestTimeoutError):
+        client._collect_results(futures=[completed, pending], deadline=time.monotonic() - 1.0)
+
+    assert pending.cancelled()
 
 
 def test_stop_drains_pending_tasks_with_stopping_error() -> None:

@@ -74,12 +74,7 @@ def resolve_shutdown_grace_seconds() -> float:
 
 
 def resolve_use_fp16() -> bool:
-    raw_value = os.getenv("BGE_M3_INFERENCE_USE_FP16", "").strip().lower()
-    if raw_value in {"", "1", "true", "yes", "on"}:
-        return DEFAULT_USE_FP16
-    if raw_value in {"0", "false", "no", "off"}:
-        return False
-    return DEFAULT_USE_FP16
+    return _bool_env("BGE_M3_INFERENCE_USE_FP16", default=DEFAULT_USE_FP16)
 
 
 def _first_non_empty_env(*names: str) -> str:
@@ -114,3 +109,14 @@ def _positive_float_env(name: str, *, default: float) -> float:
     if parsed <= 0:
         return default
     return parsed
+
+
+def _bool_env(name: str, *, default: bool) -> bool:
+    raw_value = os.getenv(name, "").strip().lower()
+    if not raw_value:
+        return default
+    if raw_value in {"1", "true", "yes", "on"}:
+        return True
+    if raw_value in {"0", "false", "no", "off"}:
+        return False
+    return default

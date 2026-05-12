@@ -1,5 +1,6 @@
 COMPOSE := $(shell if docker compose version >/dev/null 2>&1; then echo "docker compose"; elif docker-compose version >/dev/null 2>&1; then echo "docker-compose"; else echo "docker compose"; fi)
 DC := $(COMPOSE) -f docker-compose.yml
+RELEASE_DC := $(COMPOSE) -f docker-compose.release.yml
 PYTORCH_TEST_IMAGE ?= pytorch/pytorch:2.9.1-cuda12.8-cudnn9-runtime
 PYTEST_ARGS ?= tests -vv --color=yes --tb=short -ra
 PYTHON ?= python3
@@ -17,6 +18,7 @@ GPU_PRECHECK := if [ "$${BGE_M3_INFERENCE_SKIP_GPU_CHECK:-0}" != "1" ]; then \
 CANONICALIZED_ENV := export BGE_M3_INFERENCE_API_KEY="$${BGE_M3_INFERENCE_API_KEY:-$${EMBEDDING_SERVICE_API_KEY:-}}"; \
 	export BGE_M3_INFERENCE_PORT="$${BGE_M3_INFERENCE_PORT:-$${EMBEDDING_SERVICE_PORT:-8000}}"; \
 	export BGE_M3_INFERENCE_CONTAINER_NAME="$${BGE_M3_INFERENCE_CONTAINER_NAME:-$${EMBEDDING_SERVICE_CONTAINER_NAME:-bge-m3_inference}}"; \
+	export BGE_M3_INFERENCE_IMAGE_TAG="$${BGE_M3_INFERENCE_IMAGE_TAG:-latest}"; \
 	export BGE_M3_INFERENCE_BATCH_MAX_ITEMS="$${BGE_M3_INFERENCE_BATCH_MAX_ITEMS:-64}"; \
 	export BGE_M3_INFERENCE_BATCH_MAX_TOKENS="$${BGE_M3_INFERENCE_BATCH_MAX_TOKENS:-16384}"; \
 	export BGE_M3_INFERENCE_BATCH_MAX_WAIT_MS="$${BGE_M3_INFERENCE_BATCH_MAX_WAIT_MS:-5}"; \
@@ -30,7 +32,7 @@ CANONICALIZED_ENV := export BGE_M3_INFERENCE_API_KEY="$${BGE_M3_INFERENCE_API_KE
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build up down clean test benchmark
+.PHONY: help build up down clean test benchmark release-pull release-up
 
 help:
 	@printf '%s\n' 'Available targets:'
@@ -40,10 +42,13 @@ help:
 	@printf '%s\n' '  make clean'
 	@printf '%s\n' '  make test'
 	@printf '%s\n' '  make benchmark'
+	@printf '%s\n' '  make release-pull'
+	@printf '%s\n' '  make release-up'
 	@printf '\n%s\n' 'Notes:'
 	@printf '%s\n' '  - copy .env.example to .env before build/up.'
 	@printf '%s\n' '  - make test runs pytest in a disposable container.'
 	@printf '%s\n' '  - make benchmark expects the service to already be running.'
+	@printf '%s\n' '  - make release-pull / release-up use GHCR images via docker-compose.release.yml.'
 	@printf '%s\n' '  - make up requires a working NVIDIA driver unless BGE_M3_INFERENCE_SKIP_GPU_CHECK=1 is set.'
 
 build:
@@ -72,3 +77,9 @@ benchmark:
 		--repeats "$${BENCHMARK_REPEATS:-5}" \
 		--ready-timeout-seconds "$${BENCHMARK_READY_TIMEOUT_SECONDS:-60}" \
 		$${BENCHMARK_EXTRA_ARGS:---dense}
+
+release-pull:
+	@$(LOAD_DOTENV) $(CANONICALIZED_ENV) $(RELEASE_DC) pull
+
+release-up:
+	@$(LOAD_DOTENV) $(GPU_PRECHECK); $(CANONICALIZED_ENV) $(RELEASE_DC) up -d

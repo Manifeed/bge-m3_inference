@@ -18,6 +18,24 @@ make up
 
 The service listens on `http://localhost:8000` by default.
 
+## Release Workflow
+
+GitHub Actions publishes release images for every pushed Git tag matching
+`v*`.
+
+```bash
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+Published images:
+
+- `ghcr.io/manifeed/bge-m3_inference:v1.2.3`
+- `ghcr.io/manifeed/bge-m3_inference:latest`
+
+The release workflow always runs the test suite first. If tests fail, no image
+is published.
+
 ## Common Commands
 
 ```bash
@@ -27,6 +45,8 @@ make down
 make clean
 make test
 make benchmark
+make release-pull
+make release-up
 ```
 
 `make benchmark` suppose que le service tourne deja localement. Par defaut, la
@@ -46,6 +66,44 @@ rend pas toujours la variable visible pour `make`. Utilise soit `export
 BGE_M3_INFERENCE_API_KEY=change-me`, soit `.env`, soit la forme inline
 `BGE_M3_INFERENCE_API_KEY=change-me make benchmark`.
 
+## Deploying Published Images
+
+`docker-compose.yml` remains the local development entrypoint and still builds
+the image from source. Production-style deployments should use
+`docker-compose.release.yml` instead to pull the public `GHCR` image.
+
+Default behavior:
+
+- `BGE_M3_INFERENCE_IMAGE_TAG=latest` pulls the newest released image
+- `BGE_M3_INFERENCE_IMAGE_TAG=v1.2.3` pins a specific released version
+
+Example server update flow:
+
+```bash
+cp .env.example .env
+export BGE_M3_INFERENCE_API_KEY=change-me
+export BGE_M3_INFERENCE_IMAGE_TAG=latest
+make release-pull
+make release-up
+curl http://127.0.0.1:8000/internal/ready \
+  -H "Authorization: Bearer ${BGE_M3_INFERENCE_API_KEY}"
+```
+
+Equivalent raw Docker Compose commands:
+
+```bash
+docker compose -f docker-compose.release.yml pull
+docker compose -f docker-compose.release.yml up -d
+```
+
+Rollback to a previous published version:
+
+```bash
+export BGE_M3_INFERENCE_IMAGE_TAG=v1.2.2
+make release-pull
+make release-up
+```
+
 ## Configuration
 
 Canonical environment variables:
@@ -53,6 +111,7 @@ Canonical environment variables:
 - `BGE_M3_INFERENCE_API_KEY`: required Bearer token
 - `BGE_M3_INFERENCE_PORT`: published local port
 - `BGE_M3_INFERENCE_CONTAINER_NAME`: local container name
+- `BGE_M3_INFERENCE_IMAGE_TAG`: release image tag to pull when using `docker-compose.release.yml`
 - `SOURCE_EMBEDDING_MODEL_PATH`: model path inside the container
 - `BGE_M3_INFERENCE_BATCH_MAX_ITEMS`: max queued inputs per GPU batch
 - `BGE_M3_INFERENCE_BATCH_MAX_TOKENS`: max estimated tokens per GPU batch
