@@ -126,12 +126,6 @@ Canonical environment variables:
 - `HF_HUB_OFFLINE` and `TRANSFORMERS_OFFLINE`: force offline runtime loading from the pre-baked image.
   They are intended for container runtime; the image build itself still downloads the model first.
 
-Legacy compatibility aliases are still accepted for one transition cycle:
-
-- `EMBEDDING_SERVICE_API_KEY`
-- `EMBEDDING_SERVICE_PORT`
-- `EMBEDDING_SERVICE_CONTAINER_NAME`
-
 ## API
 
 ### Request

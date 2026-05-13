@@ -21,16 +21,13 @@ DEFAULT_USE_FP16 = True
 
 
 def resolve_embedding_api_key() -> str:
-    return _first_non_empty_env("BGE_M3_INFERENCE_API_KEY", "EMBEDDING_SERVICE_API_KEY")
+    return os.getenv("BGE_M3_INFERENCE_API_KEY", "").strip()
 
 
 def require_embedding_api_key() -> str:
     value = resolve_embedding_api_key()
     if not value:
-        raise EmbeddingServiceConfigurationError(
-            "BGE_M3_INFERENCE_API_KEY is required "
-            "(legacy EMBEDDING_SERVICE_API_KEY is still accepted temporarily)"
-        )
+        raise EmbeddingServiceConfigurationError("BGE_M3_INFERENCE_API_KEY is required")
     return value
 
 
@@ -75,14 +72,6 @@ def resolve_shutdown_grace_seconds() -> float:
 
 def resolve_use_fp16() -> bool:
     return _bool_env("BGE_M3_INFERENCE_USE_FP16", default=DEFAULT_USE_FP16)
-
-
-def _first_non_empty_env(*names: str) -> str:
-    for name in names:
-        value = os.getenv(name, "").strip()
-        if value:
-            return value
-    return ""
 
 
 def _positive_int_env(name: str, *, default: int) -> int:

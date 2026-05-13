@@ -316,10 +316,9 @@ def test_embeddings_route_requires_api_key(monkeypatch) -> None:
     assert response.json() == {"detail": "Invalid or missing API key"}
 
 
-def test_embeddings_route_accepts_legacy_api_key_env(monkeypatch) -> None:
+def test_embeddings_route_accepts_canonical_api_key_env(monkeypatch) -> None:
     _patch_runtime_client(monkeypatch)
-    monkeypatch.delenv("BGE_M3_INFERENCE_API_KEY", raising=False)
-    monkeypatch.setenv("EMBEDDING_SERVICE_API_KEY", "legacy-key")
+    monkeypatch.setenv("BGE_M3_INFERENCE_API_KEY", "canonical-key")
     monkeypatch.setattr(
         "app.routers.embedding_router.create_embeddings",
         lambda payload: EmbeddingResponseRead(
@@ -344,7 +343,7 @@ def test_embeddings_route_accepts_legacy_api_key_env(monkeypatch) -> None:
             "sparse": True,
             "colbert": False,
         },
-        headers={"Authorization": "Bearer legacy-key"},
+        headers={"Authorization": "Bearer canonical-key"},
     )
 
     assert response.status_code == 200
@@ -353,13 +352,11 @@ def test_embeddings_route_accepts_legacy_api_key_env(monkeypatch) -> None:
 def test_internal_ready_requires_api_key_configuration(monkeypatch) -> None:
     _patch_runtime_client(monkeypatch)
     monkeypatch.delenv("BGE_M3_INFERENCE_API_KEY", raising=False)
-    monkeypatch.delenv("EMBEDDING_SERVICE_API_KEY", raising=False)
     client = TestClient(app)
     response = client.get("/internal/ready")
 
     assert response.status_code == 503
     assert response.json() == {
         "code": "embedding_service_misconfigured",
-        "message": "BGE_M3_INFERENCE_API_KEY is required "
-        "(legacy EMBEDDING_SERVICE_API_KEY is still accepted temporarily)",
+        "message": "BGE_M3_INFERENCE_API_KEY is required",
     }
